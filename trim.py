@@ -1,3 +1,4 @@
+import uuid
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
@@ -37,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Title
-st.title("DataFrame Column Selector")
+st.title("CSV EDA Tool")
 st.write("Upload a CSV file and select columns to keep")
 
 # File uploader
@@ -54,6 +55,10 @@ if uploaded_file is not None:
         st.session_state.column_renames = {}
     if 'filter_refunds' not in st.session_state:
         filter_refunds = False
+    if 'row_range' not in st.session_state:
+        st.session_state.row_range = (0, len(df))
+    if 'shuffle_df' not in st.session_state:
+        st.session_state.shuffle_df = False
     
     # Display original dataframe
     st.subheader("Original DataFrame")
@@ -66,7 +71,7 @@ if uploaded_file is not None:
         st.download_button(
             label="Download Original CSV",
             data=csv,
-            file_name="original_data.csv",
+            file_name=f"HB_original_{uuid.uuid4().hex[:8]}.csv",
             mime="text/csv",
             use_container_width=True,
             key="download_original"
@@ -110,6 +115,44 @@ if uploaded_file is not None:
         selected_cols = list(st.session_state.selected_columns)
         filtered_df = df[selected_cols].copy()
         
+        # Add row range selector
+        st.markdown("---")
+        st.subheader("Select Row Range")
+        
+        # Create slider for row range
+        min_val, max_val = st.slider(
+            "Select rows to keep",
+            min_value=0,
+            max_value=len(filtered_df),
+            value=st.session_state.row_range,
+            help="Drag the handles to select the range of rows to keep"
+        )
+        
+        # Update session state
+        st.session_state.row_range = (min_val, max_val)
+        
+        # Apply row range filter
+        filtered_df = filtered_df.iloc[min_val:max_val]
+        
+        # Display row count info
+        st.info(f"Showing rows {min_val} to {max_val} (Total: {len(filtered_df)} rows)")
+        
+        # Add shuffle checkbox
+        st.session_state.shuffle_df = st.checkbox(
+            "Shuffle the dataframe",
+            value=st.session_state.shuffle_df,
+            key="st.session_state.shuffle_df"
+        )
+        
+        # Apply shuffle if checked
+        if st.session_state.shuffle_df:
+            filtered_df = filtered_df.sample(frac=1, random_state=42).reset_index(drop=True)
+            st.session_state.shuffle_df = True
+            st.info("Dataframe has been shuffled")
+            st.session_state.shuffle_df = False
+        else:
+            st.session_state.shuffle_df = False
+        
         # Apply renames
         rename_dict = {old: new for old, new in st.session_state.column_renames.items() 
                       if old in selected_cols}
@@ -127,7 +170,7 @@ if uploaded_file is not None:
             st.download_button(
                 label="Download Filtered CSV",
                 data=csv,
-                file_name="filtered_data.csv",
+                file_name=f"HB_filtered_{uuid.uuid4().hex[:8]}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="download_filtered"
@@ -169,7 +212,6 @@ if uploaded_file is not None:
         
         # Display final dataframe with renames
         if st.session_state.column_renames:
-            # st.markdown("---")  # Add a separator
             st.subheader("Final DataFrame with Renamed Columns")
             final_df = filtered_df.copy()
             final_df = final_df.rename(columns=st.session_state.column_renames)
@@ -182,7 +224,7 @@ if uploaded_file is not None:
                 st.download_button(
                     label="Download Final CSV",
                     data=csv,
-                    file_name="final_data.csv",
+                    file_name=f"HB_final_{uuid.uuid4().hex[:8]}.csv",
                     mime="text/csv",
                     use_container_width=True,
                     key="download_final"
@@ -198,7 +240,6 @@ if uploaded_file is not None:
         
         # Display info message and filtered data if checkbox is checked
         if filter_refunds:
-            # print("ON")
             if 'Refunded Amount' in filtered_df.columns and 'Refundable Amount' in filtered_df.columns:
                 # Store original row count
                 original_rows = len(filtered_df)
@@ -224,7 +265,7 @@ if uploaded_file is not None:
                     st.download_button(
                         label="Download Filtered CSV",
                         data=csv,
-                        file_name="filtered_data.csv",
+                        file_name=f"HB_filtered_{uuid.uuid4().hex[:8]}.csv",
                         mime="text/csv",
                         use_container_width=True,
                         key="download_refund_filtered"
@@ -232,7 +273,5 @@ if uploaded_file is not None:
             else:
                 st.warning("Both 'Refunded Amount' and 'Refundable Amount' columns must be selected to apply this filter.")
                 filter_refunds = False
-                print("Column not found")
     else:
-        # print("OFF")
         st.info("Select columns to keep from the cards above")
