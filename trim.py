@@ -4,7 +4,7 @@ import streamlit.components.v1 as components
 
 # Set page config
 st.set_page_config(
-    page_title="DataFrame Column Selector",
+    page_title="CSV EDA Tool",
     page_icon="✂️",
     layout="wide"
 )
