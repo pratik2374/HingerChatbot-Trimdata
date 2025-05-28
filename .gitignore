@@ -9,3 +9,7 @@ storage/sample.8196/graph_store.json
 storage/sample.8196/image__vector_store.json
 storage/sample.8196/index_store.json
 .streamlit/secrets.toml
+.storage
+.dataset
+storage/
+dataset/

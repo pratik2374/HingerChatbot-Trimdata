@@ -96,6 +96,10 @@ def load_df(file):
         # Display basic data info
         st.sidebar.success(f"Successfully loaded {len(df)} rows and {len(df.columns)} columns")
         st.sidebar.markdown("### Data Preview")
+        df['Order_time'] = pd.to_datetime(df['Order_time'])
+        df['Order_date'] = df['Order_time'].dt.strftime('%Y-%m-%d')     # e.g., "2025-04-01"
+        df['Order_clock_time'] = df['Order_time'].dt.strftime('%H:%M:%S')  # e.g., "00:06:00"
+        df = df.drop(columns=['Order_time'])
         st.sidebar.dataframe(df.head(3))
         
         return df
@@ -137,7 +141,39 @@ def load_data():
 
 # Load data
 df = load_df(file)
-query_engine = PandasQueryEngine(df=df, verbose=False, synthesize_response=True)
+query_engine = PandasQueryEngine(
+    df=df,
+    verbose=False,
+    synthesize_response=True,
+    # pandas_prompt= """
+    #     "You are working with a pandas dataframe in Python.\n"
+    #     "The name of the dataframe is `df`.\n"
+    #     "This is the result of `print(df.head())`:\n"
+    #     "{df_str}\n\n"
+    #     "Follow these instructions:\n"
+    #     "{instruction_str}\n"
+    #     "Meaning of the columns:\n
+    #         Vendor Id : Restaurant identifier\n
+    #         quantity : Number of items in the order (per line or total)\n
+    #         Status : Delivery status(Rejected, payment_failed, delivered)\n
+    #         Created At : For few rows “Delivered At” and “Processed At “ has some NULL values so choosing “Created At “ as Time-date column\n
+    #         Delivery Method: “PIN”, “QR” and for all “delivered” status as rejected or payment failed “delivery Method” is NULL\n
+    #         Reject Message : very few non null values, and for every “Status” as “payment_failed” , Reject Message is always “Customer Reject”\n
+    #         Contact Number: For identification of unique customer\n
+    #         Location ID: For identification of unique location\n
+    #         Occasion ID: For determination of Occasional sales, ['2,594' '181' '2,593' '180']\n
+    #         Source Device: ['android_app' 'ios_app' 'mweb' 'cafeteria']\n
+    #         Employee Paid: Payment done to employee\n
+    #         Company Paid: Payment done to company\n
+    #         Cgst : csgt paid on order \n
+    #         Sgst : csgt paid on order \n
+    #         Total Value : Considering this as total sales\n
+    #         Refundable Amount : Utmost amount refundable to customer\n
+    #         Refunded Amount: Amount Refunded to customer\n"
+    #     "Query: {query_str}\n\n"
+    #     "Expression:"
+    # """
+    )
 st.session_state.supa_index = load_data()
 Supa_Engine = st.session_state.supa_index.as_query_engine(similarity_top_k=3)
 
@@ -185,7 +221,7 @@ tools = query_engine_tools + [panda_retriver]
 agent = FunctionAgent(
     tools=tools,
     llm=OpenAI(model="gpt-4o"), 
-    system_prompt= """
+    system_prompt= f"""
         You are an advanced Data Analysis Assistant with expertise in both pandas data analysis and semantic search capabilities. Your primary responsibilities are:
 
         1. Data Analysis using panda_retriver:
@@ -205,6 +241,7 @@ agent = FunctionAgent(
         - Include relevant data points and statistics when applicable
         - Explain your reasoning and methodology
         - Format numerical results appropriately
+        - It it is required to use the panda_retriver tool and type of query demands to break it into subquestions small query and use the panda_retriver tool on level basis one by one to answer the subquestions then perform one by one level by level on susquestents the results to answer the main question.
         - Use markdown formatting for better readability
 
         4. Error Handling:
@@ -218,6 +255,30 @@ agent = FunctionAgent(
         - Maintain professional and helpful tone
         - Consider data privacy and security
         - Provide context-aware responses
+
+        6. "This is the data that you are working on:\n
+            {df.head()}\n
+            "
+        "These are the columns of the data with their meaning:\n
+            "Vendor ID" : Restaurant identifier\n
+            "Qty" : Number of items in the order (per line or total)\n
+            "Delivery_Status" : Delivery status(Rejected, payment_failed, delivered)\n
+            "Order_date" : Date of the order in <class 'pandas.core.frame.DataFrame'> format all date related queries are based on this column, **Example : one entry in this column is "2025-04-01" **\n
+            "Order_clock_time" : Time of the order in <class 'pandas.core.frame.DataFrame'> format all time related queries are based on this column, **Example : one entry in this column is "00:06:00" **\n
+            "Delivery Method": “PIN”, “QR” and for all “delivered” status as rejected or payment failed “delivery Method” is NULL\n
+            "Reject Message" : very few non null values, and for every “Status” as “payment_failed” , Reject Message is always “Customer Reject”\n
+            "Contact Number": For identification of unique customer\n
+            "Location ID": For identification of unique location\n
+            "Occasion ID": For determination of Occasional sales, ['2,594' '181' '2,593' '180']\n
+            "Source Device": ['android_app' 'ios_app' 'mweb' 'cafeteria']\n
+            "Employee Paid": Payment done to employee\n
+            "Company Paid": Payment done to company\n
+            "Cgst" : csgt paid on order \n
+            "Sgst" : csgt paid on order \n
+            "Sales" : Considering this as total sales\n
+            "Refundable Amount" : Utmost amount refundable to customer\n
+            "Refunded Amount" : Amount Refunded to customer\n
+        "
 
         Remember to:
         - Use the appropriate tool (panda_retriver or similarity_retrive) based on the query type
