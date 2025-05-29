@@ -40,10 +40,10 @@ An advanced data analysis chatbot that combines the power of pandas data analysi
 
 1. Implement EDA on Dataset manually or you can use [this tool](https://csvtrimapp.streamlit.app/)
 
-2. Rename some column as below : 
-   "Created At" or other timedate column as "Order_time"
-   "Status" as "Delivery_Status"
-   "Total Value" as "Sales"
+2. Rename your columns as follows : 
+  - `"Created At"` or any other date/time column → **Order_time**
+  - `"Status"` → **Delivery_Status**
+  - `"Total Value"` → **Sales**
 
 3. Set up your OpenAI API key in Streamlit secrets:
   - Create a `.streamlit/secrets.toml` file
