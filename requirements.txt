@@ -3,3 +3,5 @@ pandas
 llama-index 
 openai
 llama_index.experimental
+matplotlib
+seaborn
