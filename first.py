@@ -16,6 +16,10 @@ from llama_index.core.agent.workflow import FunctionAgent, ToolCallResult, Agent
 from llama_index.core.workflow import Context
 import os
 import asyncio
+import matplotlib.pyplot as plt
+import seaborn as sns
+import io
+import re
 
 # Set OpenAI API key from secrets
 os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
@@ -75,9 +79,7 @@ def load_df(file):
         if file_extension == 'csv':
             df = pd.read_csv(file)
         elif file_extension in ['xls', 'xlsx']:
-            print("hello")
             df = pd.read_excel(file)
-            print("hello2")
         else:
             st.error("Unsupported file format. Please upload a CSV or Excel file.")
             st.stop()
@@ -96,10 +98,31 @@ def load_df(file):
         # Display basic data info
         st.sidebar.success(f"Successfully loaded {len(df)} rows and {len(df.columns)} columns")
         st.sidebar.markdown("### Data Preview")
-        df['Order_time'] = pd.to_datetime(df['Order_time'])
-        df['Order_date'] = df['Order_time'].dt.strftime('%Y-%m-%d')     # e.g., "2025-04-01"
-        df['Order_clock_time'] = df['Order_time'].dt.strftime('%H:%M:%S')  # e.g., "00:06:00"
-        df = df.drop(columns=['Order_time'])
+
+        # --- Robust datetime handling ---
+        # Try to find a datetime column
+        datetime_col = None
+        for col in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                datetime_col = col
+                break
+            # Try to parse if column name suggests datetime
+            if 'date' in col.lower() or 'time' in col.lower():
+                try:
+                    df[col] = pd.to_datetime(df[col])
+                    datetime_col = col
+                    break
+                except Exception:
+                    continue
+
+        if datetime_col:
+            df['Order_date'] = df[datetime_col].dt.strftime('%Y-%m-%d')
+            df['Order_clock_time'] = df[datetime_col].dt.strftime('%H:%M:%S')
+            # Optionally drop the original datetime column
+            # df = df.drop(columns=[datetime_col])
+        else:
+            st.sidebar.info("No datetime column detected. Date/time features will be unavailable.")
+
         st.sidebar.dataframe(df.head(3))
         
         return df
@@ -140,6 +163,7 @@ def load_data():
     
 
 # Load data
+
 df = load_df(file)
 query_engine = PandasQueryEngine(
     df=df,
@@ -156,9 +180,9 @@ query_engine = PandasQueryEngine(
     #         Vendor Id : Restaurant identifier\n
     #         quantity : Number of items in the order (per line or total)\n
     #         Status : Delivery status(Rejected, payment_failed, delivered)\n
-    #         Created At : For few rows “Delivered At” and “Processed At “ has some NULL values so choosing “Created At “ as Time-date column\n
-    #         Delivery Method: “PIN”, “QR” and for all “delivered” status as rejected or payment failed “delivery Method” is NULL\n
-    #         Reject Message : very few non null values, and for every “Status” as “payment_failed” , Reject Message is always “Customer Reject”\n
+    #         Created At : For few rows "Delivered At" and "Processed At " has some NULL values so choosing "Created At " as Time-date column\n
+    #         Delivery Method: "PIN", "QR" and for all "delivered" status as rejected or payment failed "delivery Method" is NULL\n
+    #         Reject Message : very few non null values, and for every "Status" as "payment_failed" , Reject Message is always "Customer Reject"\n
     #         Contact Number: For identification of unique customer\n
     #         Location ID: For identification of unique location\n
     #         Occasion ID: For determination of Occasional sales, ['2,594' '181' '2,593' '180']\n
@@ -218,74 +242,146 @@ def panda_retriver(query: str) -> str:
 
 tools = query_engine_tools + [panda_retriver]
 
+def get_column_summary(df: pd.DataFrame, n_examples: int = 2) -> str:
+    """Generate a summary of columns, types, and example values for prompt."""
+    summary = []
+    for col in df.columns:
+        col_type = str(df[col].dtype)
+        examples = df[col].dropna().unique()[:n_examples]
+        summary.append(
+            f'- "{col}": type={col_type}, examples={list(examples)}'
+        )
+    return "\n".join(summary)
+
+def is_visualization_query(query: str) -> bool:
+    """Detect if the query is asking for a visualization."""
+    viz_keywords = [
+        "plot", "chart", "graph", "visualize", "visualization", "draw", "histogram", "bar", "line", "scatter", "pie"
+    ]
+    return any(word in query.lower() for word in viz_keywords)
+
+def render_visualization(df: pd.DataFrame, query: str):
+    """
+    Generate a visualization based on the query using pandas/seaborn/matplotlib.
+    Handles numeric and categorical data robustly and asks for clarification if needed.
+    """
+    try:
+        # Bar plot: try to find a categorical x and numeric y, or count if y is not numeric
+        if "bar" in query or "bar plot" in query or "bar chart" in query:
+            # Try to find a categorical column for x
+            x_col = next((col for col in df.columns if df[col].dtype == 'object' or 'cat' in str(df[col].dtype)), df.columns[0])
+            # Try to find a numeric column for y
+            y_col = next((col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])), None)
+
+            if y_col:
+                # If numeric y, aggregate by sum
+                agg_df = df.groupby(x_col)[y_col].sum().reset_index()
+                plt.figure(figsize=(8, 4))
+                sns.barplot(x=agg_df[x_col], y=agg_df[y_col])
+                plt.ylabel(y_col)
+                plt.xlabel(x_col)
+                plt.title(f"{y_col} by {x_col}")
+                plt.xticks(rotation=45)
+            else:
+                # If no numeric y, ask for clarification before plotting counts
+                st.info(f"You asked for a bar plot of '{x_col}', but there is no numeric column to plot. "
+                        "Would you like to see a count plot (number of occurrences for each category)?")
+                # Optionally, you could add a button for the user to confirm
+                if st.button(f"Show count plot for {x_col}"):
+                    counts = df[x_col].value_counts()
+                    plt.figure(figsize=(8, 4))
+                    sns.barplot(x=counts.index, y=counts.values)
+                    plt.ylabel("Count")
+                    plt.xlabel(x_col)
+                    plt.title(f"Count by {x_col}")
+                    plt.xticks(rotation=45)
+                else:
+                    return
+        elif "hist" in query or "histogram" in query:
+            col = next((col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])), None)
+            if col:
+                plt.figure(figsize=(8, 4))
+                sns.histplot(df[col].dropna(), kde=True)
+                plt.title(f"Histogram of {col}")
+            else:
+                st.error("No numeric column found for histogram.")
+                return
+        elif "scatter" in query or "scatter plot" in query:
+            num_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+            if len(num_cols) >= 2:
+                plt.figure(figsize=(8, 4))
+                sns.scatterplot(data=df, x=num_cols[0], y=num_cols[1])
+                plt.title(f"Scatter plot of {num_cols[0]} vs {num_cols[1]}")
+            else:
+                st.error("Not enough numeric columns for scatter plot.")
+                return
+        else:
+            st.info("Visualization type not recognized or not explicitly requested. Please specify the type of plot you want.")
+            return
+        buf = io.BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format="png")
+        st.image(buf)
+        plt.close()
+    except Exception as e:
+        st.error(f"Could not generate visualization: {e}")
+
+# In your main prompt, dynamically describe the data:
+def get_system_prompt(df: pd.DataFrame) -> str:
+    return f"""
+        You are an advanced Data Analysis Assistant with expertise in pandas data analysis and semantic search.
+        Your responsibilities:
+        - Analyze any tabular data, regardless of column names/types.
+        - For visualization requests, always suggest a plot that fits the data (e.g., count plot for categorical, sum/mean for numeric).
+        - If a plot cannot be made, explain why.
+        - Here is a summary of the data you are working with:
+        {get_column_summary(df)}
+        Here are the first few rows:
+        {df.head(2).to_markdown()}
+        Respond in markdown for readability.
+    """
+def run_and_render_code_from_response(response: str):
+    """
+    Detects Python code blocks in the response, executes them, and renders any matplotlib plots.
+    Shows the rest of the response as markdown.
+    """
+    code_blocks = re.findall(r"```(?:python)?\s*([\s\S]*?)```", response)
+    non_code = re.sub(r"```(?:python)?\s*[\s\S]*?```", "", response).strip()
+    
+    # Run each code block
+    for code in code_blocks:
+        # Optionally, you can add security checks here!
+        try:
+            # Clear previous figures
+            plt.close('all')
+            # Provide globals with common imports
+            exec_globals = {
+                "plt": plt,
+                "sns": sns,
+                "pd": pd,
+                "df": df,
+                # Add more if needed
+            }
+            exec(code, exec_globals)
+            # If a plot was created, show it
+            buf = io.BytesIO()
+            plt.tight_layout()
+            plt.savefig(buf, format="png")
+            st.image(buf)
+            plt.close()
+        except Exception as e:
+            st.error(f"Error running code snippet: {e}")
+    
+    # Show the rest of the response as markdown
+    if non_code:
+        st.markdown(non_code)
+
+
+# Update agent initialization to use the new dynamic prompt
 agent = FunctionAgent(
     tools=tools,
     llm=OpenAI(model="gpt-4o"), 
-    system_prompt= f"""
-        You are an advanced Data Analysis Assistant with expertise in both pandas data analysis and semantic search capabilities. Your primary responsibilities are:
-
-        1. Data Analysis using panda_retriver:
-        - Process natural language queries about the uploaded dataset
-        - Perform statistical analysis, filtering, and data manipulation
-        - Provide clear explanations of your analysis results
-        - Handle both simple and complex analytical queries
-
-        2. Semantic Search using query_engine_tools(name: "Sales-Analyser"):
-        - Understand and process context-based queries
-        - Retrieve relevant information from the vector store
-        - Provide comprehensive answers based on the available data
-        - Maintain context awareness in conversations
-
-        3. Response Guidelines:
-        - Always provide clear, concise, and accurate responses
-        - Include relevant data points and statistics when applicable
-        - Explain your reasoning and methodology
-        - Format numerical results appropriately
-        - It it is required to use the panda_retriver tool and type of query demands to break it into subquestions small query and use the panda_retriver tool on level basis one by one to answer the subquestions then perform one by one level by level on susquestents the results to answer the main question.
-        - Use markdown formatting for better readability
-
-        4. Error Handling:
-        - If a Pandas Query Engine is not able to answer the question, then use the query_engine_tools tool to answer the question by searching the data in the vector store.
-        - Gracefully handle ambiguous or unclear queries
-        - Provide helpful suggestions when queries cannot be processed
-        - Guide users to rephrase questions when needed
-
-        5. Best Practices:
-        - Prioritize accuracy over speed
-        - Maintain professional and helpful tone
-        - Consider data privacy and security
-        - Provide context-aware responses
-
-        6. "This is the data that you are working on:\n
-            {df.head()}\n
-            "
-        "These are the columns of the data with their meaning:\n
-            "Vendor ID" : Restaurant identifier\n
-            "Qty" : Number of items in the order (per line or total)\n
-            "Delivery_Status" : Delivery status(Rejected, payment_failed, delivered)\n
-            "Order_date" : Date of the order in <class 'pandas.core.frame.DataFrame'> format all date related queries are based on this column, **Example : one entry in this column is "2025-04-01" **\n
-            "Order_clock_time" : Time of the order in <class 'pandas.core.frame.DataFrame'> format all time related queries are based on this column, **Example : one entry in this column is "00:06:00" **\n
-            "Delivery Method": “PIN”, “QR” and for all “delivered” status as rejected or payment failed “delivery Method” is NULL\n
-            "Reject Message" : very few non null values, and for every “Status” as “payment_failed” , Reject Message is always “Customer Reject”\n
-            "Contact Number": For identification of unique customer\n
-            "Location ID": For identification of unique location\n
-            "Occasion ID": For determination of Occasional sales, ['2,594' '181' '2,593' '180']\n
-            "Source Device": ['android_app' 'ios_app' 'mweb' 'cafeteria']\n
-            "Employee Paid": Payment done to employee\n
-            "Company Paid": Payment done to company\n
-            "Cgst" : csgt paid on order \n
-            "Sgst" : csgt paid on order \n
-            "Sales" : Considering this as total sales\n
-            "Refundable Amount" : Utmost amount refundable to customer\n
-            "Refunded Amount" : Amount Refunded to customer\n
-        "
-
-        Remember to:
-        - Use the appropriate tool (panda_retriver or similarity_retrive) based on the query type
-        - Combine insights from both tools when necessary
-        - Always verify the accuracy of your responses
-        - Provide step-by-step explanations for complex analyses
-    """
+    system_prompt=get_system_prompt(df)
 )
 
 st.session_state.ctx = Context(agent)
@@ -305,12 +401,16 @@ async def main(prompt):
 
 async def process_chat(prompt):
     try:
+        # Visualization detection
+        if is_visualization_query(prompt):
+            with st.spinner("Generating visualization..."):
+                render_visualization(df, prompt)
         # Run the agent with proper error handling
         response = await main(prompt=prompt)
         if response is None:
             st.error("No response generated. Please try rephrasing your question.")
         else:
-            st.write(str(response))
+            run_and_render_code_from_response(str(response))
             st.session_state.messages.append({"role": "assistant", "content": str(response)})
     except Exception as e:
         error_message = f"Error processing your query: {str(e)}"
