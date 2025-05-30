@@ -5,3 +5,4 @@ openai
 llama_index.experimental
 matplotlib
 seaborn
+tabulate
