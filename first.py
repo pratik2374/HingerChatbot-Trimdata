@@ -206,8 +206,9 @@ query_engine_tools = [
         query_engine=Supa_Engine,
         name="Sales-Analyser",
         description=(
-            "Provides information about sales data of a company profit and sales "
-            "Use a detailed plain text question as input to the tool."
+            "Use this tool to answer questions about the uploaded tabular data. "
+            "It can perform statistical analysis, filtering, aggregation, and generate insights. "
+            "Always use the actual column names from the provided DataFrame."
         ),
     )
 ]
@@ -252,6 +253,10 @@ def get_column_summary(df: pd.DataFrame, n_examples: int = 2) -> str:
             f'- "{col}": type={col_type}, examples={list(examples)}'
         )
     return "\n".join(summary)
+
+def get_column_names(df: pd.DataFrame) -> str:
+    """Return a comma-separated string of column names."""
+    return ", ".join([f'"{col}"' for col in df.columns])
 
 def is_visualization_query(query: str) -> bool:
     """Detect if the query is asking for a visualization."""
@@ -329,17 +334,27 @@ def render_visualization(df: pd.DataFrame, query: str):
 # In your main prompt, dynamically describe the data:
 def get_system_prompt(df: pd.DataFrame) -> str:
     return f"""
-        You are an advanced Data Analysis Assistant with expertise in pandas data analysis and semantic search.
-        Your responsibilities:
-        - Analyze any tabular data, regardless of column names/types.
-        - For visualization requests, always suggest a plot that fits the data (e.g., count plot for categorical, sum/mean for numeric).
-        - If a plot cannot be made, explain why.
-        - Here is a summary of the data you are working with:
-        {get_column_summary(df)}
-        Here are the first few rows:
-        {df.head(2).to_markdown()}
-        Respond in markdown for readability.
-    """
+You are an advanced Data Analysis Assistant with expertise in pandas data analysis and semantic search.
+
+Instructions:
+- The DataFrame you must use is named `df` and contains the user's uploaded data. Never create or load a new DataFrame.
+- If the user explicitly asks for a visualization (e.g., plot, chart, graph, visualization, histogram, bar, line, scatter, pie), return only the Python code (in a code block) that generates the requested plot using matplotlib or seaborn, and then provide a concise explanation of what the chart shows. Do not explain the code itself.
+- If the user does not ask for a visualization, provide only a direct, concise, and complete answer to their question, with no code block.
+- Always use the actual column names and data types from `df`. Never use hardcoded or sample data.
+- If the question is ambiguous or cannot be answered, ask for clarification or explain why.
+- If a visualization is not possible, explain why.
+- Format all responses in markdown for readability.
+- Never include code that creates or loads a DataFrame; always use the existing `df` variable.
+
+Data context:
+- Number of rows: {len(df)}, Number of columns: {len(df.columns)}
+- Column names: {get_column_names(df)}
+- Columns and types:
+{get_column_summary(df)}
+- Sample data:
+{df.head(2).to_markdown()}
+"""
+
 def run_and_render_code_from_response(response: str):
     """
     Detects Python code blocks in the response, executes them, and renders any matplotlib plots.
@@ -350,20 +365,15 @@ def run_and_render_code_from_response(response: str):
     
     # Run each code block
     for code in code_blocks:
-        # Optionally, you can add security checks here!
         try:
-            # Clear previous figures
             plt.close('all')
-            # Provide globals with common imports
             exec_globals = {
                 "plt": plt,
                 "sns": sns,
                 "pd": pd,
                 "df": df,
-                # Add more if needed
             }
             exec(code, exec_globals)
-            # If a plot was created, show it
             buf = io.BytesIO()
             plt.tight_layout()
             plt.savefig(buf, format="png")
@@ -372,7 +382,6 @@ def run_and_render_code_from_response(response: str):
         except Exception as e:
             st.error(f"Error running code snippet: {e}")
     
-    # Show the rest of the response as markdown
     if non_code:
         st.markdown(non_code)
 
@@ -401,10 +410,6 @@ async def main(prompt):
 
 async def process_chat(prompt):
     try:
-        # Visualization detection
-        if is_visualization_query(prompt):
-            with st.spinner("Generating visualization..."):
-                render_visualization(df, prompt)
         # Run the agent with proper error handling
         response = await main(prompt=prompt)
         if response is None:
