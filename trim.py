@@ -63,6 +63,13 @@ if uploaded_file is not None:
     # Display original dataframe
     st.subheader("Original DataFrame")
     st.dataframe(df)
+
+     # Find columns with all empty rows
+    empty_columns = [col for col in df.columns if df[col].isna().all()]
+    if empty_columns:
+        st.warning("The following columns have all empty rows:")
+        for col in empty_columns:
+            st.write(f"- {col}")
     
     # Download button for original dataframe
     col1, col2, col3 = st.columns([1,2,1])
