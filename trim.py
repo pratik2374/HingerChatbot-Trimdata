@@ -70,6 +70,8 @@ if uploaded_file is not None:
         st.warning("The following columns have all empty rows:")
         for col in empty_columns:
             st.write(f"- {col}")
+    else:
+        st.info("No columns with all empty rows found.")
     
     # Download button for original dataframe
     col1, col2, col3 = st.columns([1,2,1])
