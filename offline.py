@@ -49,7 +49,7 @@ st.sidebar.markdown("---")
 
 st.sidebar.markdown("### 💬 Try These Examples")
 st.sidebar.code(
-    '''- describe the data
+    '''
 - Give me a bar plot on "Employee paid" by "source device"
 - Plot a bar chart for the day wise orders
 - Time at which highest sales was made on 4/25/2025?
