@@ -53,7 +53,7 @@ st.sidebar.code(
 - Give me a bar plot on "Employee paid" by "source device"
 - Plot a bar chart for the day wise orders
 - Time at which highest sales was made on 4/25/2025?
-- List the top five vendors by orders'''
+- List the top five vendors by orders on 4/25/2025?'''
 )
 
 st.sidebar.markdown("---")
