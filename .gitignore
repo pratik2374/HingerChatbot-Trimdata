@@ -1,16 +1,9 @@
-storage/sample.16528/default__vector_store.json
-storage/sample.16528/docstore.json
-storage/sample.16528/graph_store.json
-storage/sample.16528/image__vector_store.json
-storage/sample.16528/index_store.json
-storage/sample.8196/default__vector_store.json
-storage/sample.8196/docstore.json
-storage/sample.8196/graph_store.json
-storage/sample.8196/image__vector_store.json
-storage/sample.8196/index_store.json
+.env
 .streamlit/secrets.toml
+first.py
+# Add this
+storage/sample.20652/default__vector_store.json
 .storage
-.dataset
 storage/
-dataset/
-    
+first.py
+final_merged_output_sample_testing (1) - Copy of final_merged_output_sample_testing (1).csv
