@@ -97,7 +97,7 @@ def load_df(file_path):
 def load_data():
     try:
         storage_context = StorageContext.from_defaults(
-            persist_dir=r"storage\sample.20652"
+            persist_dir='storage/sample.20652'
         )
         supa_index = load_index_from_storage(storage_context)
         return supa_index
