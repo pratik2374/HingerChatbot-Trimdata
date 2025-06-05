@@ -13,3 +13,11 @@ storage/sample.8196/index_store.json
 .dataset
 storage/
 dataset/
+.env
+data_analysis_agent.ipynb
+trim.py
+HB_filtered_6eeb4472.csv
+trim.py
+trim.py
+temp_dataset/data.csv
+csvbot.ipynb
