@@ -114,7 +114,7 @@ def load_data():
     
 
 # Load data
-df = load_df(r"dataset\data.csv")
+df = load_df('dataset/data.csv')
 
 
 query_engine = PandasQueryEngine(
