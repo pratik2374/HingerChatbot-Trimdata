@@ -94,7 +94,6 @@ def load_df(file_path):
         st.stop()
 
 # Load the data and index
-@st.cache_data
 def load_data():
     try:
         st.session_state.storage_context = StorageContext.from_defaults(
