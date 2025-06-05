@@ -96,14 +96,15 @@ def load_df(file_path):
 # Load the data and index
 def load_data():
     try:
-        storage_context = StorageContext.from_defaults(
+        st.session_state.storage_context = StorageContext.from_defaults(
             persist_dir='storage/sample.20652'
         )
-        supa_index = load_index_from_storage(storage_context)
-        return supa_index
+        st.session_state.supa_index = load_index_from_storage(st.session_state.storage_context)
     except Exception as e:
-        st.error(f"Error loading index: {str(e)}")
-        return None
+        st.error(f"Error loading index: {e}")
+        st.session_state.supa_index = None
+
+    return st.session_state.supa_index
 
 
     
@@ -120,6 +121,13 @@ query_engine = PandasQueryEngine(
 
 if "supa_index" not in st.session_state:
     st.session_state.supa_index = load_data()
+
+if st.session_state.supa_index is not None:
+    Supa_Engine = st.session_state.supa_index.as_query_engine(similarity_top_k=3)
+else:
+    st.error("Could not load the index. Please check if the path is correct and the storage is available.")
+    st.stop()
+
 
 Supa_Engine = st.session_state.supa_index.as_query_engine(similarity_top_k=3)
 
