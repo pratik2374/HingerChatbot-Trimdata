@@ -64,7 +64,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Title and description
-st.title("📊 Data Analysis Chatbot")
+st.title("📊 HungerBot Chatbot")
 st.markdown("Ask questions about your data and get instant insights!")
 
 def load_df(file_path):
