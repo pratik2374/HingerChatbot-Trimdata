@@ -2,8 +2,7 @@
 .streamlit/secrets.toml
 first.py
 # Add this
-storage/sample.20652/default__vector_store.json
-.storage
-storage/
+
 first.py
 final_merged_output_sample_testing (1) - Copy of final_merged_output_sample_testing (1).csv
+trim.py
