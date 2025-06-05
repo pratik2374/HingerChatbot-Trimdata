@@ -27,10 +27,37 @@ os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
 
 # Set page config
 st.set_page_config(
-    page_title="Data Analysis Chatbot",
+    page_title="HungerBot Chatbot",
     page_icon="🤖",
     layout="centered"  # Options are: "centered", "wide"
 )
+
+st.sidebar.title("🍽️ HungerBot")
+st.sidebar.markdown("#### An Intelligent AI Assistant for Sales Data")
+st.sidebar.markdown("---")
+
+st.sidebar.markdown("### 🔍 Features")
+st.sidebar.markdown(
+    """
+- Chat with your data  
+- Get smart insights  
+- Generate visualizations  
+"""
+)
+
+st.sidebar.markdown("---")
+
+st.sidebar.markdown("### 💬 Try These Examples")
+st.sidebar.code(
+    '''- describe the data
+- Give me a bar plot on "Employee paid" by "source device"
+- Plot a bar chart for the day wise orders
+- Time at which highest sales was made on 4/25/2025?
+- List the top five vendors by orders'''
+)
+
+st.sidebar.markdown("---")
+
 
 # Initialize session state for chat history
 if "messages" not in st.session_state:
@@ -58,7 +85,7 @@ def load_df(file_path):
             
             
         # Display basic data info
-        st.sidebar.success(f"Successfully loaded {len(df)} rows and {len(df.columns)} columns")
+        # st.sidebar.success(f"Successfully loaded {len(df)} rows and {len(df.columns)} columns")
         st.sidebar.markdown("### Data Preview")
 
         # --- Robust datetime handling ---
