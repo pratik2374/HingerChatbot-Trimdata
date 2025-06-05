@@ -115,7 +115,7 @@ def load_data():
     
 
 # Load data
-df = load_df(r"dataset\final_merged_output_sample_testing (1) - Copy of final_merged_output_sample_testing (1).csv")
+df = load_df(r"dataset\data.csv")
 
 
 query_engine = PandasQueryEngine(
