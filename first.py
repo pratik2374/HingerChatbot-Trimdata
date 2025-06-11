@@ -21,6 +21,7 @@ import seaborn as sns
 import io
 import re
 import datetime
+import glob
 
 # Set OpenAI API key from secrets
 os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
@@ -63,109 +64,55 @@ with st.sidebar:
         help="Upload a CSV or Excel file to analyze"
     )
 
-def load_df(file):
-    if file is None:
-        st.warning("Please upload a file to begin analysis.")
-        st.stop()
-    
-    try:
-        # Check file size
-        file_size = file.size
-        if file_size > MAX_FILE_SIZE:
-            st.error(f"File size exceeds the maximum limit of 200MB. Current size: {file_size/1024/1024:.2f}MB")
-            st.stop()
-        
-        # Read file based on extension
-        file_extension = file.name.split('.')[-1].lower()
-        if file_extension == 'csv':
-            df = pd.read_csv(file)
-        elif file_extension in ['xls', 'xlsx']:
-            df = pd.read_excel(file)
-        else:
-            st.error("Unsupported file format. Please upload a CSV or Excel file.")
-            st.stop()
-        
-        # Basic data validation
-        if df.empty:
-            st.error("The uploaded file is empty.")
-            st.stop()
-            
-        # Save DataFrame to dataset directory if not present
-        os.makedirs('dataset', exist_ok=True)
-        dataset_path = os.path.join('dataset', f"{os.path.splitext(file.name)[0]}.{file_extension}")
-        if not os.path.exists(dataset_path):
-            df.to_csv(dataset_path, index=False)
-            
-        # Display basic data info
-        st.sidebar.success(f"Successfully loaded {len(df)} rows and {len(df.columns)} columns")
-        st.sidebar.markdown("### Data Preview")
+# --- NEW: List available datasets in the 'dataset' folder ---
+DATASET_DIR = "dataset"
+os.makedirs(DATASET_DIR, exist_ok=True)
+dataset_files = glob.glob(os.path.join(DATASET_DIR, "*.csv")) + glob.glob(os.path.join(DATASET_DIR, "*.xlsx")) + glob.glob(os.path.join(DATASET_DIR, "*.xls"))
 
-        # --- Robust datetime handling ---
-        # Try to find a datetime column
-        datetime_col = None
-        for col in df.columns:
-            if pd.api.types.is_datetime64_any_dtype(df[col]):
-                datetime_col = col
-                break
-            # Try to parse if column name suggests datetime
-            if 'date' in col.lower() or 'time' in col.lower():
-                try:
-                    df[col] = pd.to_datetime(df[col])
-                    datetime_col = col
-                    break
-                except Exception:
-                    continue
+if not dataset_files:
+    st.error("No datasets found in the 'dataset' folder. Please add your data files there.")
+    st.stop()
 
-        if datetime_col:
-            df['Order_date'] = df[datetime_col].dt.strftime('%Y-%m-%d')
-            df['Order_clock_time'] = df[datetime_col].dt.strftime('%H:%M:%S')
-            # Optionally drop the original datetime column
-            # df = df.drop(columns=[datetime_col])
-        else:
-            st.sidebar.info("No datetime column detected. Date/time features will be unavailable.")
+# Let user select a dataset if more than one
+if len(dataset_files) == 1:
+    selected_file = dataset_files[0]
+else:
+    selected_file = st.selectbox("Select a dataset to analyze", dataset_files)
 
-        st.sidebar.dataframe(df.head(3))
-        
-        return df
-        
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        st.stop()
+# --- Load the selected dataset ---
+file_extension = selected_file.split('.')[-1].lower()
+if file_extension == 'csv':
+    df = pd.read_csv(selected_file)
+elif file_extension in ['xls', 'xlsx']:
+    df = pd.read_excel(selected_file)
+else:
+    st.error("Unsupported file format in dataset folder.")
+    st.stop()
 
 # Load the data and index
 @st.cache_data
 def load_data():
+    dirs = glob.glob("./storage/sample*")
+    if not dirs:
+        st.error("No vector index found in './storage/'. Please create the index and embeddings first.")
+        st.stop()
+    persist_dir = dirs[0]  # or add logic to pick the latest/desired one
     try:
         st.session_state.storage_context = StorageContext.from_defaults(
-            persist_dir=f"./storage/sample.{os.getpid()}"
+            persist_dir=persist_dir
         )
         st.session_state.supa_index = load_index_from_storage(st.session_state.storage_context)
-
-
-        index_loaded = True
-    except:
-        index_loaded = False
-
-    if not index_loaded:
-        print("Loading data...")
-        # load data
-        supa_docs = SimpleDirectoryReader(
-            input_dir="dataset"
-        ).load_data()
-
-        # build index
-        st.session_state.supa_index = VectorStoreIndex.from_documents(supa_docs)
-
-    # persist index
-    st.session_state.supa_index.storage_context.persist(persist_dir=f"./storage/sample.{os.getpid()}")
-
-    return st.session_state.supa_index
+        return st.session_state.supa_index
+    except Exception as e:
+        st.error(
+            f"No existing vector index found in '{persist_dir}'. Please create the index and embeddings first."
+        )
+        st.stop()
 
     
 
 # Load data
 
-df = load_df(file)
 query_engine = PandasQueryEngine(
     df=df,
     verbose=False,
@@ -332,9 +279,46 @@ def render_visualization(df: pd.DataFrame, query: str):
     except Exception as e:
         st.error(f"Could not generate visualization: {e}")
 
+def get_entity_related_columns(df: pd.DataFrame):
+    """
+    Dynamically map common entities to their related columns based on column names.
+    """
+    entity_map = {}
+    colnames = [col.lower() for col in df.columns]
+    # Example for product
+    product_cols = [col for col in df.columns if any(key in col.lower() for key in ["product", "item"])]
+    if product_cols:
+        entity_map["product"] = product_cols
+    # Example for vendor
+    vendor_cols = [col for col in df.columns if "vendor" in col.lower()]
+    if vendor_cols:
+        entity_map["vendor"] = vendor_cols
+    # Example for customer
+    customer_cols = [col for col in df.columns if "customer" in col.lower() or "user" in col.lower()]
+    if customer_cols:
+        entity_map["customer"] = customer_cols
+    # Example for order
+    order_cols = [col for col in df.columns if "order" in col.lower()]
+    if order_cols:
+        entity_map["order"] = order_cols
+    # Example for location
+    location_cols = [col for col in df.columns if "location" in col.lower()]
+    if location_cols:
+        entity_map["location"] = location_cols
+    # Add more entities as needed
+    return entity_map
+
 # In your main prompt, dynamically describe the data:
 def get_system_prompt(df: pd.DataFrame) -> str:
     current_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entity_map = get_entity_related_columns(df)
+    entity_instructions = ""
+    for entity, cols in entity_map.items():
+        entity_instructions += (
+            f"- When a user asks about a {entity}, always include these related columns in your answer: {', '.join([f'\"{c}\"' for c in cols])}. "
+            f"If you need to look up an ID or code, always resolve it to its full details using all related columns in a single answer. "
+            f"If the answer requires multiple steps (e.g., find the most sold {entity}, then fetch its details), perform all steps and return a complete answer in one response.\n"
+        )
     return f"""
 You are HungerBox's advanced Data Analysis Assistant, designed to help users analyze and gain insights from complex sales and operational data. You are integrated into a Retrieval-Augmented Generation (RAG) system and have access to the user's uploaded data as a pandas DataFrame named `df`.
 
@@ -343,6 +327,8 @@ Current date and time: {current_datetime}
 Your core responsibilities:
 - **Data Fidelity:** Always use the provided DataFrame `df` for all analysis, calculations, and visualizations. Never create or load a new DataFrame or use sample data.
 - **Column Awareness:** Only use the actual column names and data types present in `df`. If you are unsure about a column name, refer to the provided list of columns.
+- **Entity Context:**  
+{entity_instructions}
 - **Business Context:** Assume the data is related to sales, orders, transactions, customers, vendors, products, payments, and other business operations typical for a food-tech company like HungerBox. However, always adapt to the actual columns and data provided.
 - **Directness:** Always answer the user's question directly and concisely. If the question is ambiguous or cannot be answered, ask for clarification or explain why.
 - **Details:** Always answer the user's question directly, **with a detailed, step-by-step explanation** of your reasoning and findings. For every response, include a clear summary of what the result means in a business context, and how the user can interpret or act on it.
@@ -406,6 +392,20 @@ def run_and_render_code_from_response(response: str):
     if non_code:
         st.markdown(non_code)
 
+# Helper: Build chat history for LLM context
+def build_llm_chat_history(messages, max_turns=5):
+    """
+    Returns a list of dicts for the last max_turns Q&A pairs, formatted for OpenAI/chat LLMs.
+    """
+    # Only keep the last max_turns*2 messages (user+assistant)
+    history = messages[-max_turns*2:]
+    chat = []
+    for msg in history:
+        if msg["role"] == "user":
+            chat.append({"role": "user", "content": msg["content"]})
+        elif msg["role"] == "assistant":
+            chat.append({"role": "assistant", "content": msg["content"]})
+    return chat
 
 # Update agent initialization to use the new dynamic prompt
 agent = FunctionAgent(
@@ -415,8 +415,40 @@ agent = FunctionAgent(
 )
 
 st.session_state.ctx = Context(agent)
+
+def optimize_query_with_llm(user_query: str, df: pd.DataFrame) -> str:
+    """
+    Uses the LLM to rewrite the user's query into a more detailed, entity-aware query.
+    """
+    # Use a simple prompt for the LLM to expand the query
+    system_prompt = (
+        "You are a query optimizer for a data analysis assistant. "
+        "Given a user's question and the available columns in a pandas DataFrame, "
+        "rewrite the question to explicitly request all relevant details for any entity (such as product, vendor, customer, etc.), "
+        "including IDs, names, dates, and values. "
+        "If the question is ambiguous, make it specific and multi-step if needed. "
+        "Columns available: " + ", ".join(df.columns) + "."
+    )
+    # Use your OpenAI LLM (or any LLM you have) to rewrite the query
+    llm = OpenAI(model="gpt-4o")  # or your preferred model
+    response = llm.complete(
+        prompt=f"{system_prompt}\nUser question: {user_query}\nOptimized query:",
+        max_tokens=128,
+        temperature=0.2,
+        stop=["\n\n"]
+    )
+    return response.text.strip()
+
 async def main(prompt):
-    handler = agent.run(prompt, ctx=st.session_state.ctx, stepwise=False)
+    # Build chat history for context
+    chat_history = build_llm_chat_history(st.session_state.messages, max_turns=5)
+    # The agent.run method should accept a chat history if supported
+    handler = agent.run(
+        prompt,
+        ctx=st.session_state.ctx,
+        stepwise=False,
+        chat_history=chat_history  # Pass chat history to the agent/LLM
+    )
 
     async for ev in handler.stream_events():
         if isinstance(ev, ToolCallResult):
@@ -431,8 +463,13 @@ async def main(prompt):
 
 async def process_chat(prompt):
     try:
-        # Run the agent with proper error handling
-        response = await main(prompt=prompt)
+        # Optimize the user query before passing to the agent
+        optimized_query = optimize_query_with_llm(prompt, df)
+        # Optionally, show the optimized query for debugging
+        st.info(f"Optimized query: {optimized_query}")
+
+        # Now pass optimized_query to your agent instead of prompt
+        response = await main(prompt=optimized_query)
         if response is None:
             st.error("No response generated. Please try rephrasing your question.")
         else:
